@@ -8,13 +8,24 @@ export default function Feed({ session }) {
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('recent')
 
+  const token = session?.access_token
+
   useEffect(() => {
     loadScreenshots()
-  }, [])
+  }, [filter])
 
   const loadScreenshots = async () => {
+    setLoading(true)
     try {
-      const data = await api.getPublicFeed()
+      let data
+      if (filter === 'mine' && token) {
+        data = await api.getMyScreenshots(token)
+      } else {
+        data = await api.getPublicFeed(token)
+      }
+      if (filter === 'trending') {
+        data = [...data].sort((a, b) => (b.feedback_count || 0) - (a.feedback_count || 0))
+      }
       setScreenshots(data)
     } catch (err) {
       console.error('Failed to load feed:', err)
@@ -37,16 +48,6 @@ export default function Feed({ session }) {
           </div>
           <div className="flex gap-2">
             <button
-              onClick={() => setFilter('trending')}
-              className={`px-4 py-2 rounded-full text-label-md font-semibold transition-colors ${
-                filter === 'trending'
-                  ? 'bg-surface-container-highest text-on-surface'
-                  : 'bg-transparent border border-outline-variant text-on-surface-variant hover:bg-surface-container'
-              }`}
-            >
-              Trending
-            </button>
-            <button
               onClick={() => setFilter('recent')}
               className={`px-4 py-2 rounded-full text-label-md font-semibold transition-colors ${
                 filter === 'recent'
@@ -56,6 +57,28 @@ export default function Feed({ session }) {
             >
               Recent
             </button>
+            <button
+              onClick={() => setFilter('trending')}
+              className={`px-4 py-2 rounded-full text-label-md font-semibold transition-colors ${
+                filter === 'trending'
+                  ? 'bg-surface-container-highest text-on-surface'
+                  : 'bg-transparent border border-outline-variant text-on-surface-variant hover:bg-surface-container'
+              }`}
+            >
+              Trending
+            </button>
+            {session && (
+              <button
+                onClick={() => setFilter('mine')}
+                className={`px-4 py-2 rounded-full text-label-md font-semibold transition-colors ${
+                  filter === 'mine'
+                    ? 'bg-primary text-on-primary'
+                    : 'bg-transparent border border-outline-variant text-on-surface-variant hover:bg-surface-container'
+                }`}
+              >
+                My Uploads
+              </button>
+            )}
           </div>
         </div>
 
@@ -95,6 +118,12 @@ export default function Feed({ session }) {
                     className="absolute inset-0 bg-cover bg-center"
                     style={{ backgroundImage: `url(${s.image_url})` }}
                   />
+                  {s.visibility === 'private' && (
+                    <div className="absolute top-3 left-3 flex items-center gap-1 bg-surface/90 backdrop-blur-sm text-on-surface-variant px-2.5 py-1 rounded-full text-[11px] font-semibold">
+                      <span className="material-symbols-outlined text-[14px]">link</span>
+                      Link only
+                    </div>
+                  )}
                 </div>
                 <div className="p-6">
                   <div className="flex justify-between items-start mb-2">

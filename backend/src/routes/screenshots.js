@@ -4,8 +4,46 @@ import { requireAuth, optionalAuth } from '../middleware/auth.js'
 
 const router = Router()
 
-// GET /api/screenshots - public feed
-router.get('/', async (req, res) => {
+// GET /api/screenshots - public feed (+ owner's own private ones if logged in)
+router.get('/', optionalAuth, async (req, res) => {
+  let query = supabaseAdmin
+    .from('screenshots')
+    .select(`
+      id, title, description, image_url, visibility, created_at,
+      owner_id,
+      profiles!screenshots_owner_id_profiles_fkey(full_name),
+      feedback(count)
+    `)
+    .order('created_at', { ascending: false })
+
+  // If logged in, show public + own private. Otherwise, public only.
+  if (req.user) {
+    query = query.or(`visibility.eq.public,owner_id.eq.${req.user.id}`)
+  } else {
+    query = query.eq('visibility', 'public')
+  }
+
+  const { data, error } = await query
+
+  if (error) return res.status(500).json({ message: error.message })
+
+  const formatted = data.map((s) => ({
+    id: s.id,
+    title: s.title,
+    description: s.description,
+    image_url: s.image_url,
+    visibility: s.visibility,
+    created_at: s.created_at,
+    owner_id: s.owner_id,
+    owner_name: s.profiles?.full_name || 'Anonymous',
+    feedback_count: s.feedback?.[0]?.count || 0,
+  }))
+
+  res.json(formatted)
+})
+
+// GET /api/screenshots/mine - only current user's screenshots
+router.get('/mine', requireAuth, async (req, res) => {
   const { data, error } = await supabaseAdmin
     .from('screenshots')
     .select(`
@@ -14,7 +52,7 @@ router.get('/', async (req, res) => {
       profiles!screenshots_owner_id_profiles_fkey(full_name),
       feedback(count)
     `)
-    .eq('visibility', 'public')
+    .eq('owner_id', req.user.id)
     .order('created_at', { ascending: false })
 
   if (error) return res.status(500).json({ message: error.message })
@@ -34,8 +72,8 @@ router.get('/', async (req, res) => {
   res.json(formatted)
 })
 
-// GET /api/screenshots/:id
-router.get('/:id', optionalAuth, async (req, res) => {
+// GET /api/screenshots/:id - anyone with the link can view
+router.get('/:id', async (req, res) => {
   const { id } = req.params
 
   const { data, error } = await supabaseAdmin
@@ -48,10 +86,6 @@ router.get('/:id', optionalAuth, async (req, res) => {
     .single()
 
   if (error) return res.status(404).json({ message: 'Screenshot not found' })
-
-  if (data.visibility === 'private' && data.owner_id !== req.user?.id) {
-    return res.status(403).json({ message: 'Access denied' })
-  }
 
   res.json({
     ...data,

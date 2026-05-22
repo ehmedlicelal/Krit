@@ -19,7 +19,8 @@ async function request(endpoint, options = {}) {
 }
 
 export const api = {
-  getPublicFeed: () => request('/api/screenshots'),
+  getPublicFeed: (token) => request('/api/screenshots', { token }),
+  getMyScreenshots: (token) => request('/api/screenshots/mine', { token }),
   getScreenshot: (id, token) => request(`/api/screenshots/${id}`, { token }),
   uploadScreenshot: (data, token) =>
     request('/api/screenshots', { method: 'POST', body: data, token }),

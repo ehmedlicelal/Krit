@@ -5,22 +5,18 @@ import { requireAuth, optionalAuth } from '../middleware/auth.js'
 const router = Router()
 
 // GET /api/feedback/:screenshotId
-router.get('/:screenshotId', optionalAuth, async (req, res) => {
+router.get('/:screenshotId', async (req, res) => {
   const { screenshotId } = req.params
 
-  // Verify screenshot is accessible
+  // Verify screenshot exists
   const { data: screenshot, error: sErr } = await supabaseAdmin
     .from('screenshots')
-    .select('id, visibility, owner_id')
+    .select('id')
     .eq('id', screenshotId)
     .single()
 
   if (sErr || !screenshot) {
     return res.status(404).json({ message: 'Screenshot not found' })
-  }
-
-  if (screenshot.visibility === 'private' && screenshot.owner_id !== req.user?.id) {
-    return res.status(403).json({ message: 'Access denied' })
   }
 
   const { data, error } = await supabaseAdmin
@@ -64,10 +60,6 @@ router.post('/', requireAuth, async (req, res) => {
 
   if (!screenshot) {
     return res.status(404).json({ message: 'Screenshot not found' })
-  }
-
-  if (screenshot.visibility === 'private' && screenshot.owner_id !== req.user.id) {
-    return res.status(403).json({ message: 'Access denied' })
   }
 
   const { data, error } = await supabaseAdmin
