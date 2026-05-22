@@ -6,6 +6,8 @@ import { api } from '../lib/api'
 export default function ScreenshotDetail({ session }) {
   const { id } = useParams()
   const imgRef = useRef(null)
+  const sidebarRef = useRef(null)
+  const feedbackRefs = useRef({})
   const [screenshot, setScreenshot] = useState(null)
   const [feedbackList, setFeedbackList] = useState([])
   const [aiCritique, setAiCritique] = useState(null)
@@ -17,6 +19,10 @@ export default function ScreenshotDetail({ session }) {
   const [commentText, setCommentText] = useState('')
   const [showCommentInput, setShowCommentInput] = useState(false)
   const [hoveredFeedback, setHoveredFeedback] = useState(null)
+  const [activeFeedback, setActiveFeedback] = useState(null)
+  const [replyingTo, setReplyingTo] = useState(null)
+  const [replyText, setReplyText] = useState('')
+  const [expandedReplies, setExpandedReplies] = useState({})
   const [loading, setLoading] = useState(true)
   const [aiLoading, setAiLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -141,6 +147,75 @@ export default function ScreenshotDetail({ session }) {
     setIsSelecting(false)
   }
 
+  // Click a comment in sidebar → highlight that region on the image
+  const handleCommentClick = (fb) => {
+    setActiveFeedback(fb.id)
+    setHideFeedback(false)
+    // Auto-clear highlight after 3s
+    setTimeout(() => setActiveFeedback(null), 3000)
+  }
+
+  // Click a marker on image → scroll sidebar to that comment
+  const handleMarkerClick = (fb) => {
+    setActiveFeedback(fb.id)
+    setActiveTab('community')
+    const el = feedbackRefs.current[fb.id]
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+    setTimeout(() => setActiveFeedback(null), 3000)
+  }
+
+  // Get top-level feedback (no parent_id)
+  const topLevelFeedback = feedbackList.filter((fb) => !fb.parent_id)
+
+  // Get replies for a given feedback id
+  const getReplies = (feedbackId) =>
+    feedbackList.filter((fb) => fb.parent_id === feedbackId)
+
+  // Find the "most commented" region (top-level with most replies)
+  const mostCommentedFeedback = topLevelFeedback.reduce(
+    (best, fb) => {
+      const replyCount = getReplies(fb.id).length
+      return replyCount > best.count ? { fb, count: replyCount } : best
+    },
+    { fb: null, count: -1 }
+  )
+
+  // Submit a reply
+  const submitReply = async (parentFb) => {
+    if (!replyText.trim()) return
+    try {
+      const data = await api.addReply(
+        {
+          screenshot_id: id,
+          comment: replyText,
+          parent_id: parentFb.id,
+        },
+        token
+      )
+      setFeedbackList((prev) => [...prev, data])
+      setReplyText('')
+      setReplyingTo(null)
+      setExpandedReplies((prev) => ({ ...prev, [parentFb.id]: true }))
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const toggleReplies = (fbId) => {
+    setExpandedReplies((prev) => ({ ...prev, [fbId]: !prev[fbId] }))
+  }
+
+  const deleteFeedback = async (fbId) => {
+    try {
+      await api.deleteFeedback(fbId, token)
+      setFeedbackList((prev) => prev.filter((f) => f.id !== fbId && f.parent_id !== fbId))
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
   const severityColor = (severity) => {
     if (severity === 'high') return 'bg-error-container text-on-error-container'
     if (severity === 'medium') return 'bg-surface-variant text-on-surface-variant'
@@ -228,11 +303,16 @@ export default function ScreenshotDetail({ session }) {
 
             {/* Feedback Markers */}
             {!hideFeedback &&
-              feedbackList.map((fb, i) => (
+              topLevelFeedback.map((fb, i) => (
                 <div
                   key={fb.id}
-                  className={`absolute border-2 border-dashed border-primary-fixed-dim rounded cursor-pointer flex items-start justify-end p-1 transition-all ${
-                    hoveredFeedback === fb.id ? 'bg-primary-fixed/40 shadow-lg z-10' : 'bg-primary-fixed/20'
+                  onClick={() => handleMarkerClick(fb)}
+                  className={`absolute border-2 rounded cursor-pointer flex items-start justify-end p-1 transition-all ${
+                    activeFeedback === fb.id
+                      ? 'border-solid border-primary bg-primary/30 shadow-xl z-20 ring-2 ring-primary animate-pulse'
+                      : hoveredFeedback === fb.id
+                        ? 'border-dashed border-primary-fixed-dim bg-primary-fixed/40 shadow-lg z-10'
+                        : 'border-dashed border-primary-fixed-dim bg-primary-fixed/20'
                   }`}
                   style={{
                     left: `${fb.x * 100}%`,
@@ -243,7 +323,9 @@ export default function ScreenshotDetail({ session }) {
                   onMouseEnter={() => setHoveredFeedback(fb.id)}
                   onMouseLeave={() => setHoveredFeedback(null)}
                 >
-                  <div className="w-6 h-6 bg-primary text-on-primary rounded-full flex items-center justify-center text-[10px] font-semibold shadow-sm">
+                  <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-semibold shadow-sm ${
+                    activeFeedback === fb.id ? 'bg-error text-on-error scale-125' : 'bg-primary text-on-primary'
+                  }`}>
                     {i + 1}
                   </div>
                 </div>
@@ -326,51 +408,152 @@ export default function ScreenshotDetail({ session }) {
           </div>
 
           {/* Scrolling Content */}
-          <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-5">
+          <div ref={sidebarRef} className="flex-1 overflow-y-auto p-6 flex flex-col gap-5">
             {activeTab === 'community' && (
               <>
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="text-[16px] font-semibold text-on-surface">Active Threads</h3>
                   <span className="text-label-md text-on-surface-variant bg-surface-container-high px-2 py-1 rounded">
-                    {feedbackList.length} Open
+                    {topLevelFeedback.length} Open
                   </span>
                 </div>
 
-                {feedbackList.length === 0 && (
+                {/* Most Commented Section Button */}
+                {mostCommentedFeedback.fb && mostCommentedFeedback.count > 0 && (
+                  <button
+                    onClick={() => handleCommentClick(mostCommentedFeedback.fb)}
+                    className="w-full flex items-center gap-3 p-3 bg-tertiary-fixed/20 border border-tertiary/30 rounded-xl text-left hover:bg-tertiary-fixed/30 transition-colors"
+                  >
+                    <span className="material-symbols-outlined text-tertiary text-[20px]">trending_up</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-label-md text-on-surface font-semibold truncate">Most Discussed Region</p>
+                      <p className="text-[12px] text-on-surface-variant">{mostCommentedFeedback.count} replies · Click to highlight</p>
+                    </div>
+                    <span className="material-symbols-outlined text-tertiary text-[18px]">arrow_forward</span>
+                  </button>
+                )}
+
+                {topLevelFeedback.length === 0 && (
                   <div className="text-center py-10">
                     <span className="material-symbols-outlined text-outline-variant text-[48px] mb-2">chat_bubble_outline</span>
                     <p className="text-body-md text-on-surface-variant">No feedback yet. Be the first to comment!</p>
                   </div>
                 )}
 
-                {feedbackList.map((fb, i) => (
-                  <div
-                    key={fb.id}
-                    className={`bg-surface-container-lowest rounded-xl p-5 border border-outline-variant/30 shadow-sm hover:border-primary-fixed-dim/50 transition-colors cursor-pointer ${
-                      hoveredFeedback === fb.id ? 'border-primary-fixed-dim ring-1 ring-primary-fixed-dim/30' : ''
-                    }`}
-                    onMouseEnter={() => setHoveredFeedback(fb.id)}
-                    onMouseLeave={() => setHoveredFeedback(null)}
-                  >
-                    <div className="flex items-start gap-3 mb-3">
-                      <div className="w-8 h-8 rounded-full bg-surface-container flex items-center justify-center text-primary text-label-md font-semibold flex-none">
-                        {(fb.user_name || 'U').slice(0, 2).toUpperCase()}
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex justify-between items-center">
-                          <span className="text-label-md text-on-surface">{fb.user_name || 'Anonymous'}</span>
-                          <span className="text-[12px] text-on-surface-variant">
-                            {new Date(fb.created_at).toLocaleDateString()}
+                {topLevelFeedback.map((fb, i) => {
+                  const replies = getReplies(fb.id)
+                  const isExpanded = expandedReplies[fb.id]
+                  return (
+                    <div
+                      key={fb.id}
+                      ref={(el) => { feedbackRefs.current[fb.id] = el }}
+                      className={`bg-surface-container-lowest rounded-xl p-5 border shadow-sm transition-all cursor-pointer ${
+                        activeFeedback === fb.id
+                          ? 'border-primary ring-2 ring-primary/30 bg-primary-fixed/10'
+                          : hoveredFeedback === fb.id
+                            ? 'border-primary-fixed-dim ring-1 ring-primary-fixed-dim/30'
+                            : 'border-outline-variant/30 hover:border-primary-fixed-dim/50'
+                      }`}
+                      onMouseEnter={() => setHoveredFeedback(fb.id)}
+                      onMouseLeave={() => setHoveredFeedback(null)}
+                    >
+                      {/* Comment Header */}
+                      <div onClick={() => handleCommentClick(fb)} className="flex items-start gap-3 mb-3">
+                        <div className="w-8 h-8 rounded-full bg-surface-container flex items-center justify-center text-primary text-label-md font-semibold flex-none">
+                          {(fb.user_name || 'U').slice(0, 2).toUpperCase()}
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex justify-between items-center">
+                            <span className="text-label-md text-on-surface">{fb.user_name || 'Anonymous'}</span>
+                            <span className="text-[12px] text-on-surface-variant">
+                              {new Date(fb.created_at).toLocaleDateString()}
+                            </span>
+                          </div>
+                          <span className="inline-block mt-1 text-[10px] text-primary bg-primary-fixed/30 px-2 py-0.5 rounded font-semibold">
+                            Marker {i + 1}
                           </span>
                         </div>
-                        <span className="inline-block mt-1 text-[10px] text-primary bg-primary-fixed/30 px-2 py-0.5 rounded font-semibold">
-                          Marker {i + 1}
-                        </span>
                       </div>
+
+                      {/* Comment Body */}
+                      <p onClick={() => handleCommentClick(fb)} className="text-body-sm text-on-surface-variant leading-relaxed mb-3">{fb.comment}</p>
+
+                      {/* Actions Row */}
+                      <div className="flex items-center gap-3 pt-2 border-t border-outline-variant/20">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setReplyingTo(replyingTo === fb.id ? null : fb.id); setReplyText('') }}
+                          className="flex items-center gap-1 text-[12px] text-on-surface-variant hover:text-primary transition-colors"
+                        >
+                          <span className="material-symbols-outlined text-[16px]">reply</span>
+                          Reply
+                        </button>
+                        {replies.length > 0 && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); toggleReplies(fb.id) }}
+                            className="flex items-center gap-1 text-[12px] text-primary hover:text-primary-container transition-colors"
+                          >
+                            <span className="material-symbols-outlined text-[16px]">
+                              {isExpanded ? 'expand_less' : 'expand_more'}
+                            </span>
+                            {replies.length} {replies.length === 1 ? 'reply' : 'replies'}
+                          </button>
+                        )}
+                        {fb.user_id === session?.user?.id && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); deleteFeedback(fb.id) }}
+                            className="ml-auto flex items-center gap-1 text-[12px] text-on-surface-variant hover:text-error transition-colors"
+                          >
+                            <span className="material-symbols-outlined text-[16px]">delete</span>
+                            Delete
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Reply Input */}
+                      {replyingTo === fb.id && (
+                        <div className="mt-3 flex gap-2" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="text"
+                            value={replyText}
+                            onChange={(e) => setReplyText(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') submitReply(fb) }}
+                            placeholder="Write a reply..."
+                            autoFocus
+                            className="flex-1 bg-surface border border-outline-variant rounded-lg px-3 py-2 text-body-sm focus:outline-none focus:border-primary-fixed-dim focus:ring-1 focus:ring-primary-fixed-dim"
+                          />
+                          <button
+                            onClick={() => submitReply(fb)}
+                            className="bg-primary text-on-primary px-3 py-2 rounded-lg text-[12px] font-semibold hover:bg-primary-container transition-colors"
+                          >
+                            <span className="material-symbols-outlined text-[16px]">send</span>
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Replies List */}
+                      {isExpanded && replies.length > 0 && (
+                        <div className="mt-3 pl-4 border-l-2 border-primary-fixed/40 flex flex-col gap-3">
+                          {replies.map((reply) => (
+                            <div key={reply.id} className="flex items-start gap-2">
+                              <div className="w-6 h-6 rounded-full bg-surface-container flex items-center justify-center text-primary text-[10px] font-semibold flex-none">
+                                {(reply.user_name || 'U').slice(0, 2).toUpperCase()}
+                              </div>
+                              <div className="flex-1">
+                                <div className="flex justify-between items-center">
+                                  <span className="text-[11px] font-semibold text-on-surface">{reply.user_name || 'Anonymous'}</span>
+                                  <span className="text-[10px] text-on-surface-variant">
+                                    {new Date(reply.created_at).toLocaleDateString()}
+                                  </span>
+                                </div>
+                                <p className="text-[13px] text-on-surface-variant leading-relaxed mt-0.5">{reply.comment}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    <p className="text-body-sm text-on-surface-variant leading-relaxed">{fb.comment}</p>
-                  </div>
-                ))}
+                  )
+                })}
               </>
             )}
 
