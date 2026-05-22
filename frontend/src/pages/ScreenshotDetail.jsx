@@ -6,6 +6,7 @@ import { api } from '../lib/api'
 export default function ScreenshotDetail({ session }) {
   const { id } = useParams()
   const imgRef = useRef(null)
+  const canvasRef = useRef(null)
   const sidebarRef = useRef(null)
   const feedbackRefs = useRef({})
   const [screenshot, setScreenshot] = useState(null)
@@ -26,9 +27,64 @@ export default function ScreenshotDetail({ session }) {
   const [loading, setLoading] = useState(true)
   const [aiLoading, setAiLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [imgDimensions, setImgDimensions] = useState(null)
+  const [imgLoaded, setImgLoaded] = useState(false)
 
   const token = session?.access_token
   const isOwner = screenshot?.owner_id === session?.user?.id
+
+  // Compute intelligent scaling for the image inside the canvas
+  const getScaledDimensions = useCallback(() => {
+    if (!imgDimensions || !canvasRef.current) return null
+    const container = canvasRef.current
+    const cw = container.clientWidth - 32 // padding
+    const ch = container.clientHeight - 32
+    const { naturalWidth: iw, naturalHeight: ih } = imgDimensions
+    const imgRatio = iw / ih
+    const containerRatio = cw / ch
+
+    let w, h
+    if (imgRatio > containerRatio) {
+      // Image is wider than container ratio → fit width
+      w = Math.min(cw, Math.max(iw, cw * 0.92))
+      h = w / imgRatio
+    } else {
+      // Image is taller → fit height
+      h = Math.min(ch, Math.max(ih, ch * 0.92))
+      w = h * imgRatio
+    }
+
+    // Clamp: never exceed container, upscale small images to fill ~90% of space
+    if (w > cw) { w = cw; h = w / imgRatio }
+    if (h > ch) { h = ch; w = h * imgRatio }
+
+    // For very small images, scale up to at least 60% of container
+    const minFill = 0.6
+    if (w < cw * minFill && h < ch * minFill) {
+      const scaleW = (cw * minFill) / w
+      const scaleH = (ch * minFill) / h
+      const scale = Math.min(scaleW, scaleH)
+      w *= scale
+      h *= scale
+    }
+
+    return { width: Math.round(w), height: Math.round(h) }
+  }, [imgDimensions])
+
+  const scaledDims = getScaledDimensions()
+
+  const handleImageLoad = (e) => {
+    const img = e.target
+    setImgDimensions({ naturalWidth: img.naturalWidth, naturalHeight: img.naturalHeight })
+    setImgLoaded(true)
+  }
+
+  // Recalculate on window resize
+  useEffect(() => {
+    const onResize = () => setImgDimensions((d) => d ? { ...d } : null)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
 
   useEffect(() => {
     loadScreenshot()
@@ -287,93 +343,116 @@ export default function ScreenshotDetail({ session }) {
 
           {/* Viewer Canvas */}
           <div
-            className="flex-1 bg-surface-container-lowest rounded-xl border border-outline-variant/30 flex items-center justify-center relative overflow-hidden"
-            style={{ cursor: isSelecting ? 'crosshair' : 'default' }}
-            onMouseDown={handleMouseDown}
-            onMouseMove={handleMouseMove}
-            onMouseUp={handleMouseUp}
+            ref={canvasRef}
+            className="flex-1 rounded-xl border border-outline-variant/30 flex items-center justify-center relative overflow-auto"
+            style={{
+              cursor: isSelecting ? 'crosshair' : 'default',
+              background: 'linear-gradient(135deg, #f8f9fa 25%, transparent 25%) -10px 0, linear-gradient(225deg, #f8f9fa 25%, transparent 25%) -10px 0, linear-gradient(315deg, #f8f9fa 25%, transparent 25%), linear-gradient(45deg, #f8f9fa 25%, transparent 25%)',
+              backgroundSize: '20px 20px',
+              backgroundColor: '#f0f1f3',
+            }}
           >
-            <img
-              ref={imgRef}
-              src={screenshot?.image_url}
-              alt={screenshot?.title}
-              className="max-w-full max-h-full object-contain"
-              draggable={false}
-            />
+            {/* Image Wrapper — sized by scaling logic */}
+            <div
+              className="relative flex-shrink-0 transition-all duration-300 ease-out"
+              style={scaledDims ? {
+                width: `${scaledDims.width}px`,
+                height: `${scaledDims.height}px`,
+              } : {}}
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseUp={handleMouseUp}
+            >
+              <img
+                ref={imgRef}
+                src={screenshot?.image_url}
+                alt={screenshot?.title}
+                onLoad={handleImageLoad}
+                className={`w-full h-full object-contain rounded-lg shadow-lg transition-opacity duration-500 ${imgLoaded ? 'opacity-100' : 'opacity-0'}`}
+                draggable={false}
+              />
 
-            {/* Feedback Markers */}
-            {!hideFeedback &&
-              topLevelFeedback.map((fb, i) => (
+              {/* Loading shimmer before image loads */}
+              {!imgLoaded && (
+                <div className="absolute inset-0 bg-surface-container-lowest rounded-lg animate-pulse flex items-center justify-center">
+                  <span className="material-symbols-outlined text-outline-variant text-[48px]">image</span>
+                </div>
+              )}
+
+              {/* Feedback Markers */}
+              {!hideFeedback && imgLoaded &&
+                topLevelFeedback.map((fb, i) => (
+                  <div
+                    key={fb.id}
+                    onClick={() => handleMarkerClick(fb)}
+                    className={`absolute border-2 rounded cursor-pointer flex items-start justify-end p-1 transition-all ${
+                      activeFeedback === fb.id
+                        ? 'border-solid border-primary bg-primary/30 shadow-xl z-20 ring-2 ring-primary animate-pulse'
+                        : hoveredFeedback === fb.id
+                          ? 'border-dashed border-primary-fixed-dim bg-primary-fixed/40 shadow-lg z-10'
+                          : 'border-dashed border-primary-fixed-dim bg-primary-fixed/20'
+                    }`}
+                    style={{
+                      left: `${fb.x * 100}%`,
+                      top: `${fb.y * 100}%`,
+                      width: `${fb.width * 100}%`,
+                      height: `${fb.height * 100}%`,
+                    }}
+                    onMouseEnter={() => setHoveredFeedback(fb.id)}
+                    onMouseLeave={() => setHoveredFeedback(null)}
+                  >
+                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-semibold shadow-sm ${
+                      activeFeedback === fb.id ? 'bg-error text-on-error scale-125' : 'bg-primary text-on-primary'
+                    }`}>
+                      {i + 1}
+                    </div>
+                  </div>
+                ))}
+
+              {/* Active Selection */}
+              {selectionRect && (
                 <div
-                  key={fb.id}
-                  onClick={() => handleMarkerClick(fb)}
-                  className={`absolute border-2 rounded cursor-pointer flex items-start justify-end p-1 transition-all ${
-                    activeFeedback === fb.id
-                      ? 'border-solid border-primary bg-primary/30 shadow-xl z-20 ring-2 ring-primary animate-pulse'
-                      : hoveredFeedback === fb.id
-                        ? 'border-dashed border-primary-fixed-dim bg-primary-fixed/40 shadow-lg z-10'
-                        : 'border-dashed border-primary-fixed-dim bg-primary-fixed/20'
-                  }`}
+                  className="absolute border-2 border-primary bg-primary/10 rounded"
                   style={{
-                    left: `${fb.x * 100}%`,
-                    top: `${fb.y * 100}%`,
-                    width: `${fb.width * 100}%`,
-                    height: `${fb.height * 100}%`,
+                    left: `${selectionRect.x * 100}%`,
+                    top: `${selectionRect.y * 100}%`,
+                    width: `${selectionRect.width * 100}%`,
+                    height: `${selectionRect.height * 100}%`,
                   }}
-                  onMouseEnter={() => setHoveredFeedback(fb.id)}
-                  onMouseLeave={() => setHoveredFeedback(null)}
+                />
+              )}
+
+              {/* Comment Input Popup */}
+              {showCommentInput && selectionRect && (
+                <div
+                  className="absolute bg-surface-container-lowest rounded-xl shadow-ambient border border-outline-variant p-4 z-20 w-72"
+                  style={{
+                    left: `${Math.min(selectionRect.x * 100 + selectionRect.width * 100, 70)}%`,
+                    top: `${selectionRect.y * 100}%`,
+                  }}
                 >
-                  <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-semibold shadow-sm ${
-                    activeFeedback === fb.id ? 'bg-error text-on-error scale-125' : 'bg-primary text-on-primary'
-                  }`}>
-                    {i + 1}
+                  <textarea
+                    value={commentText}
+                    onChange={(e) => setCommentText(e.target.value)}
+                    placeholder="Add your feedback..."
+                    rows={3}
+                    autoFocus
+                    className="w-full bg-surface border border-outline-variant rounded-lg px-3 py-2 text-body-sm focus:outline-none focus:border-primary-fixed-dim focus:ring-1 focus:ring-primary-fixed-dim resize-none"
+                  />
+                  <div className="flex justify-end gap-2 mt-2">
+                    <button onClick={cancelFeedback} className="text-body-sm text-on-surface-variant hover:text-on-surface">
+                      Cancel
+                    </button>
+                    <button
+                      onClick={submitFeedback}
+                      className="bg-primary text-on-primary px-4 py-1.5 rounded-lg text-body-sm font-semibold hover:bg-primary-container transition-colors"
+                    >
+                      Submit
+                    </button>
                   </div>
                 </div>
-              ))}
-
-            {/* Active Selection */}
-            {selectionRect && (
-              <div
-                className="absolute border-2 border-primary bg-primary/10 rounded"
-                style={{
-                  left: `${selectionRect.x * 100}%`,
-                  top: `${selectionRect.y * 100}%`,
-                  width: `${selectionRect.width * 100}%`,
-                  height: `${selectionRect.height * 100}%`,
-                }}
-              />
-            )}
-
-            {/* Comment Input Popup */}
-            {showCommentInput && selectionRect && (
-              <div
-                className="absolute bg-surface-container-lowest rounded-xl shadow-ambient border border-outline-variant p-4 z-20 w-72"
-                style={{
-                  left: `${Math.min(selectionRect.x * 100 + selectionRect.width * 100, 70)}%`,
-                  top: `${selectionRect.y * 100}%`,
-                }}
-              >
-                <textarea
-                  value={commentText}
-                  onChange={(e) => setCommentText(e.target.value)}
-                  placeholder="Add your feedback..."
-                  rows={3}
-                  autoFocus
-                  className="w-full bg-surface border border-outline-variant rounded-lg px-3 py-2 text-body-sm focus:outline-none focus:border-primary-fixed-dim focus:ring-1 focus:ring-primary-fixed-dim resize-none"
-                />
-                <div className="flex justify-end gap-2 mt-2">
-                  <button onClick={cancelFeedback} className="text-body-sm text-on-surface-variant hover:text-on-surface">
-                    Cancel
-                  </button>
-                  <button
-                    onClick={submitFeedback}
-                    className="bg-primary text-on-primary px-4 py-1.5 rounded-lg text-body-sm font-semibold hover:bg-primary-container transition-colors"
-                  >
-                    Submit
-                  </button>
-                </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
 
