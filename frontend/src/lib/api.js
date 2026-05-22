@@ -27,6 +27,10 @@ export const api = {
     request(`/api/feedback/${screenshotId}`, { token }),
   addFeedback: (data, token) =>
     request('/api/feedback', { method: 'POST', body: data, token }),
+  addReply: (data, token) =>
+    request('/api/feedback', { method: 'POST', body: data, token }),
+  deleteFeedback: (id, token) =>
+    request(`/api/feedback/${id}`, { method: 'DELETE', token }),
   getAiCritique: (screenshotId, token) =>
     request(`/api/ai-critique/${screenshotId}`, { token }),
   generateAiCritique: (screenshotId, token) =>
