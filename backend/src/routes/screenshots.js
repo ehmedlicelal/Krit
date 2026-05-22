@@ -11,7 +11,7 @@ router.get('/', async (req, res) => {
     .select(`
       id, title, description, image_url, visibility, created_at,
       owner_id,
-      profiles!screenshots_owner_id_fkey(full_name),
+      profiles!screenshots_owner_id_profiles_fkey(full_name),
       feedback(count)
     `)
     .eq('visibility', 'public')
@@ -42,7 +42,7 @@ router.get('/:id', optionalAuth, async (req, res) => {
     .from('screenshots')
     .select(`
       id, title, description, image_url, visibility, created_at, owner_id,
-      profiles!screenshots_owner_id_fkey(full_name)
+      profiles!screenshots_owner_id_profiles_fkey(full_name)
     `)
     .eq('id', id)
     .single()
