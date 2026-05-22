@@ -14,7 +14,7 @@ export default function Navbar({ session }) {
       <div className="flex justify-between items-center w-full px-6 md:px-margin-desktop h-20 max-w-container mx-auto">
         <div className="flex items-center gap-4">
           <Link to="/" className="text-headline-md font-semibold text-primary">
-            Visionary AI
+            Krit
           </Link>
         </div>
 

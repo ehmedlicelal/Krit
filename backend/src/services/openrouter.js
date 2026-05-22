@@ -27,8 +27,8 @@ Focus on: visual hierarchy, CTA visibility, spacing/alignment, contrast/accessib
     headers: {
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
-      'HTTP-Referer': 'https://visionary-ai.app',
-      'X-Title': 'Visionary AI',
+      'HTTP-Referer': 'https://krit-app.vercel.app',
+      'X-Title': 'Krit',
     },
     body: JSON.stringify({
       model: 'google/gemini-2.0-flash-001',

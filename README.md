@@ -1,4 +1,4 @@
-# Visionary AI — Screenshot Design Critique Platform
+# Krit — Screenshot Design Critique Platform
 
 A full-stack web application for screenshot-based UI/UX feedback and AI-assisted design critique.
 
