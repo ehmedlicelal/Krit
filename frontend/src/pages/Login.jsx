@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 
 export default function Login() {
@@ -8,6 +8,9 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(false)
+  const location = useLocation()
+  const navigate = useNavigate()
+  const redirectTo = location.state?.from || '/'
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -15,7 +18,11 @@ export default function Login() {
     setLoading(true)
 
     const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) setError(error.message)
+    if (error) {
+      setError(error.message)
+    } else {
+      navigate(redirectTo, { replace: true })
+    }
     setLoading(false)
   }
 

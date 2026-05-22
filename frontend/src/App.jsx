@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import { supabase } from './lib/supabase'
 import Login from './pages/Login'
@@ -6,6 +6,14 @@ import Register from './pages/Register'
 import Feed from './pages/Feed'
 import Upload from './pages/Upload'
 import ScreenshotDetail from './pages/ScreenshotDetail'
+
+function RequireAuth({ session, children }) {
+  const location = useLocation()
+  if (!session) {
+    return <Navigate to="/login" state={{ from: location.pathname }} replace />
+  }
+  return children
+}
 
 function App() {
   const [session, setSession] = useState(null)
@@ -35,11 +43,15 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/login" element={!session ? <Login /> : <Navigate to="/" />} />
+        <Route path="/login" element={!session ? <Login /> : <Navigate to="/" replace />} />
         <Route path="/register" element={!session ? <Register /> : <Navigate to="/" />} />
         <Route path="/" element={session ? <Feed session={session} /> : <Navigate to="/login" />} />
         <Route path="/upload" element={session ? <Upload session={session} /> : <Navigate to="/login" />} />
-        <Route path="/screenshot/:id" element={<ScreenshotDetail session={session} />} />
+        <Route path="/screenshot/:id" element={
+          <RequireAuth session={session}>
+            <ScreenshotDetail session={session} />
+          </RequireAuth>
+        } />
       </Routes>
     </BrowserRouter>
   )
