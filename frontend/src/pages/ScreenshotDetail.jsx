@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useNavigate } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 import { api } from '../lib/api'
 
@@ -30,8 +30,19 @@ export default function ScreenshotDetail({ session }) {
   const [imgDimensions, setImgDimensions] = useState(null)
   const [imgLoaded, setImgLoaded] = useState(false)
 
+  const navigate = useNavigate()
   const token = session?.access_token
   const isOwner = screenshot?.owner_id === session?.user?.id
+
+  const deleteScreenshot = async () => {
+    if (!window.confirm('Are you sure you want to delete this screenshot? This will also remove all feedback and AI critiques.')) return
+    try {
+      await api.deleteScreenshot(id, token)
+      navigate('/', { replace: true })
+    } catch (err) {
+      setError(err.message)
+    }
+  }
 
   // Compute intelligent scaling for the image inside the canvas
   const getScaledDimensions = useCallback(() => {
@@ -328,6 +339,15 @@ export default function ScreenshotDetail({ session }) {
               {isSelecting ? 'Cancel Selection' : 'Add Feedback'}
             </button>
             <div className="flex items-center gap-3">
+              {isOwner && (
+                <button
+                  onClick={deleteScreenshot}
+                  className="text-label-md font-semibold px-4 py-2.5 rounded flex items-center gap-2 bg-error-container text-on-error-container hover:bg-error hover:text-on-error transition-colors shadow-sm"
+                >
+                  <span className="material-symbols-outlined text-[18px]">delete</span>
+                  Delete Post
+                </button>
+              )}
               <span className="text-body-sm text-on-surface-variant">Hide All Feedback</span>
               <label className="relative inline-flex items-center cursor-pointer">
                 <input

@@ -24,6 +24,8 @@ export const api = {
   getScreenshot: (id, token) => request(`/api/screenshots/${id}`, { token }),
   uploadScreenshot: (data, token) =>
     request('/api/screenshots', { method: 'POST', body: data, token }),
+  deleteScreenshot: (id, token) =>
+    request(`/api/screenshots/${id}`, { method: 'DELETE', token }),
   getFeedback: (screenshotId, token) =>
     request(`/api/feedback/${screenshotId}`, { token }),
   addFeedback: (data, token) =>

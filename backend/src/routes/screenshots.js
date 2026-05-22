@@ -117,4 +117,32 @@ router.post('/', requireAuth, async (req, res) => {
   res.status(201).json(data)
 })
 
+// DELETE /api/screenshots/:id
+router.delete('/:id', requireAuth, async (req, res) => {
+  const { id } = req.params
+
+  const { data: screenshot, error: fetchErr } = await supabaseAdmin
+    .from('screenshots')
+    .select('id, owner_id')
+    .eq('id', id)
+    .single()
+
+  if (fetchErr || !screenshot) {
+    return res.status(404).json({ message: 'Screenshot not found' })
+  }
+
+  if (screenshot.owner_id !== req.user.id) {
+    return res.status(403).json({ message: 'You can only delete your own screenshots' })
+  }
+
+  // Delete related feedback first, then the screenshot
+  await supabaseAdmin.from('feedback').delete().eq('screenshot_id', id)
+  await supabaseAdmin.from('ai_critiques').delete().eq('screenshot_id', id)
+
+  const { error } = await supabaseAdmin.from('screenshots').delete().eq('id', id)
+  if (error) return res.status(500).json({ message: error.message })
+
+  res.json({ message: 'Screenshot deleted' })
+})
+
 export default router
