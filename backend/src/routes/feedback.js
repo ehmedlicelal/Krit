@@ -26,8 +26,8 @@ router.get('/:screenshotId', optionalAuth, async (req, res) => {
   const { data, error } = await supabaseAdmin
     .from('feedback')
     .select(`
-      id, comment, x, y, width, height, created_at, user_id,
-      profiles!feedback_user_id_fkey(full_name)
+      id, comment, x, y, width, height, created_at, user_id, parent_id,
+      profiles!feedback_user_id_profiles_fkey(full_name)
     `)
     .eq('screenshot_id', screenshotId)
     .order('created_at', { ascending: true })
@@ -44,10 +44,15 @@ router.get('/:screenshotId', optionalAuth, async (req, res) => {
 
 // POST /api/feedback
 router.post('/', requireAuth, async (req, res) => {
-  const { screenshot_id, comment, x, y, width, height } = req.body
+  const { screenshot_id, comment, x, y, width, height, parent_id } = req.body
 
-  if (!screenshot_id || !comment || x == null || y == null || width == null || height == null) {
-    return res.status(400).json({ message: 'All fields are required: screenshot_id, comment, x, y, width, height' })
+  if (!screenshot_id || !comment) {
+    return res.status(400).json({ message: 'screenshot_id and comment are required' })
+  }
+
+  // For top-level feedback, coordinates are required. For replies, they're optional.
+  if (!parent_id && (x == null || y == null || width == null || height == null)) {
+    return res.status(400).json({ message: 'Coordinates (x, y, width, height) are required for top-level feedback' })
   }
 
   // Verify screenshot is accessible
@@ -71,14 +76,15 @@ router.post('/', requireAuth, async (req, res) => {
       screenshot_id,
       user_id: req.user.id,
       comment,
-      x,
-      y,
-      width,
-      height,
+      x: x ?? 0,
+      y: y ?? 0,
+      width: width ?? 0,
+      height: height ?? 0,
+      parent_id: parent_id || null,
     })
     .select(`
-      id, comment, x, y, width, height, created_at, user_id,
-      profiles!feedback_user_id_fkey(full_name)
+      id, comment, x, y, width, height, created_at, user_id, parent_id,
+      profiles!feedback_user_id_profiles_fkey(full_name)
     `)
     .single()
 
@@ -90,4 +96,30 @@ router.post('/', requireAuth, async (req, res) => {
   })
 })
 
+// DELETE /api/feedback/:id
+router.delete('/:id', requireAuth, async (req, res) => {
+  const { id } = req.params
+
+  const { data: fb, error: fetchErr } = await supabaseAdmin
+    .from('feedback')
+    .select('id, user_id')
+    .eq('id', id)
+    .single()
+
+  if (fetchErr || !fb) {
+    return res.status(404).json({ message: 'Feedback not found' })
+  }
+
+  if (fb.user_id !== req.user.id) {
+    return res.status(403).json({ message: 'You can only delete your own feedback' })
+  }
+
+  const { error } = await supabaseAdmin
+    .from('feedback')
+    .delete()
+    .eq('id', id)
+
+  if (error) return res.status(500).json({ message: error.message })
+  res.json({ message: 'Feedback deleted' })
+})
 export default router
